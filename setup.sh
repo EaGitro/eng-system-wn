@@ -11,5 +11,5 @@ python -m spacy download en_core_web_md;
 
 wd=pwd;
 
-mkdir $wd/db; wget -O - https://github.com/bond-lab/wnja/releases/download/v1.1/wnjpn.db.gz | gzip -dc > $wd/db/wnjpn.db
+mkdir $wd/db; wget -O https://github.com/bond-lab/wnja/releases/download/v1.1/wnjpn.db.gz | gzip -dc > $wd/db/wnjpn.db
 
