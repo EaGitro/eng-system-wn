@@ -1,8 +1,8 @@
 import sqlite3
 import spacy  # as a lemmatizer
 import sys, re
-from flask import Flask, g
-
+from flask import Flask, g, request
+from flask_cors import CORS
 
 """en_core_web_md install
 python -m spacy download en_core_web_md
@@ -231,6 +231,103 @@ class Wnjp:
         return synosobj
 
 
+    def wordids2words(self, wordids:list[int])->dict[any]:
+        """wordid の配列を受け取り、 {wordid: word} のオブジェクトを返す。
+        """
+        wordid_list_str = ", ".join(f"{wordid}" for wordid in wordids)
+        print(wordid_list_str)
+        self.cur.execute(
+            f"""
+            SELECT wordid, lemma FROM word
+            WHERE wordid in ({wordid_list_str})
+            """
+            # (("wordid_list_str",))
+        )
+        
+        lemmas_tmp = self.cur.fetchall()
+        print(lemmas_tmp)
+        words_and_wordids={}
+        for item in lemmas_tmp:
+            words_and_wordids[item[0]]=item[1].replace("_", " ")
+
+        return words_and_wordids
+    
+    def synsetids2synsetdefs(self, synsetids:list[str])->list[any]:
+        """synsetid の配列を受け取り、以下のオブジェクトを返す。
+
+        [
+        {
+            synsetid: [
+                {
+                    eng: str,
+                    jpn: str
+                },
+            ]
+        },
+        ] 
+        """
+
+        synsets = {}
+        for synsetid in synsetids:
+            self.cur.execute(
+                """
+                SELECT synset, lang, def, sid FROM synset_def
+                WHERE synset = ?
+                """,
+                ((synsetid,))
+            )
+            synsetids_tmp = self.cur.fetchall()
+            synsetdefs_tmp = [{"eng": "", "jpn": ""} for _ in range(20)]
+            print(synsetdefs_tmp)
+            sid_max = 0
+            for synsetdef in synsetids_tmp:     # synset, lang, def, sid
+                # synset = synsetdef[0]
+                lang = synsetdef[1]
+                def_ = synsetdef[2]
+                sid = int(synsetdef[3])
+                synsetdefs_tmp[sid][lang] = def_
+                sid_max = max(sid_max,sid)
+                
+            print(synsetdefs_tmp)
+            print(synsetdefs_tmp[0:sid_max+1])
+            tmp = synsetdefs_tmp[0:sid_max+1]
+            synsets[synsetid] = tmp
+            print(synsets[synsetid])
+
+        return synsets
+
+    def synsetids2synos(self, synsetids:list[str], n:int, lang:str)->list[any]:
+        """synsetid の配列を受け取り、それをキーとして、その synset に属する最初のn個のlang語の単語を返す
+        """
+        obj = {key: [] for key in synsetids}
+        where_in_query = "'"+"', '".join(synsetids)+"'"
+        print(where_in_query)
+        self.cur.execute(
+            f"""
+            SELECT synset, wordid, lang, lemma
+            FROM (
+                SELECT synset, sense.wordid, sense.lang, word.lemma,
+                    ROW_NUMBER() OVER (PARTITION BY synset) AS rownum
+                FROM sense
+                INNER JOIN word ON sense.wordid = word.wordid
+                WHERE synset IN ({where_in_query})
+                AND sense.lang = "{lang}"
+            )
+            WHERE rownum <= {n};
+            """,
+            # ((where_in_query,n))
+        )
+        rows = self.cur.fetchall()
+        print(rows)
+        for row in rows:    # synset, wordid, lang, lemma
+            obj[row[0]].append(row[3])
+        print(obj)
+        return obj
+
+
+
+
+
 # target_word = sys.argv[1]
 targets=["idea", "move", "dead", "happy", "ignore"]
 # wnjp = Wordnetjp("./db/wnjpn.db")
@@ -251,6 +348,7 @@ targets=["idea", "move", "dead", "happy", "ignore"]
 
 
 app = Flask(__name__)
+CORS(app)
 nlp = spacy.load('en_core_web_md')
 # wnjp=Wnjp(nlp, "./db/wnjpn.db")
 
@@ -286,6 +384,59 @@ def get_word(word):
         res.append({"wordid": w[0], "pos": w[1], "synsets": synsets})
     return res
 # wnjp.close_db()
+
+@app.route("/tmp-learning-words")
+def tmp_learing_words():
+    r = ['test', 'theme', 'trial', 'swing', 'operate']
+
+    return r
+
+
+
+@app.route("/wordids2words", methods=["POST"])
+def wordids2words():
+    """wordid の配列を受け取り、 {wordid:word} のオブジェクトを返す。
+    """
+    wnjp=get_wnjp()
+    req = request.json
+
+    return wnjp.wordids2words(req)
+
+@app.route("/synsetids2synsetdefs", methods=["POST"])
+def synsetids2synsetdefs():
+    """synsetid の配列を受け取り、以下のオブジェクトを返す。
+
+    [
+    {
+        synsetid: [
+            {
+                eng: str,
+                jpn: str
+            },
+        ]
+    },
+    ] 
+    """
+
+    wnjp = get_wnjp()
+    req = request.json
+
+    return wnjp.synsetids2synsetdefs(req)
+
+@app.route("/synsetids2synos", methods=["POST"])
+def synsetids2synos():
+    """synsetid の配列を受け取り、それをキーとして、その synset に属する最初のjpnNum個のlang語の単語を返す
+    
+    POST される JSON の型は:
+    {
+        "jpnNum": int,              // default: 2
+        "lang": "jpn" | "eng"       // default: "jpn"
+        "synsetids": str[]          
+    }
+    """
+    wnjp=get_wnjp()
+    req = request.json
+    return wnjp.synsetids2synos(req["synsetids"],req.get("jpnNum") or 2, req.get("lang") or "jpn")
 
 if __name__ == "__main__":
     app.run(debug=True)
