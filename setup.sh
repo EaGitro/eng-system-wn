@@ -8,8 +8,8 @@ python -m spacy download en_core_web_md;
 
 # install wnjp
 
-wd=$(pwd);
+dbdir="$(pwd)/db";
 
-wget https://github.com/bond-lab/wnja/releases/download/v1.1/wnjpn.db.gz -P $wd/data/ && 
-gzip -dc $wd/data/wnjpn.db.gz > $wd/data/wnjpn.db
+wget https://github.com/bond-lab/wnja/releases/download/v1.1/wnjpn.db.gz -P "$dbdir/" && 
+gzip -dc "$dbdir/wnjpn.db.gz" > "$dbdir/wnjpn.db"
 
