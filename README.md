@@ -1,10 +1,13 @@
 
 
 
+## spacy setting
 ```sh
 
 python -m spacy download en_core_web_md
 ```
+
+## db and shema
 
 ```python
 """返すべき値
@@ -30,6 +33,7 @@ python -m spacy download en_core_web_md
         }
     ]
 }]
+
 """
 
 """各テーブルスキーマ
@@ -65,3 +69,11 @@ CREATE TABLE word (       wordid integer primary key,
 """
 ```
 
+
+## render deploy setting
+
+
+- Do not run app with debug mode.
+- address and port is `0.0.0.0:10000` 
+- using `gunicorn` (this does not work in wondows)
+    - `gunicorn -b 0.0.0.0:10000 app:app`
