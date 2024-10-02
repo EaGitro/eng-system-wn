@@ -439,4 +439,4 @@ def synsetids2synos():
     return wnjp.synsetids2synos(req["synsetids"],req.get("jpnNum") or 2, req.get("lang") or "jpn")
 
 if __name__ == "__main__":
-    app.run(debug=True)
+    app.run()
