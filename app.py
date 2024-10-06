@@ -29,7 +29,7 @@ python -m spacy download en_core_web_md
             
             word_synset_freq: int,          # その word がその synset で使われる頻度 
             syno_list: list[synset_id:str, word_id:int, word:str, lang:str, freq:int]    # synonym word list
-        }
+        },
     ]
 }]
 """
@@ -83,6 +83,9 @@ class Wnjp:
         self.cur = sqlite3.connect(dbpath).cursor()
 
     def get_wordids_and_pos(self, lemma:str)->list[any]:
+        """lemma を受け取り wordid と pos の配列を返す.
+        ただし lemma は配列ではないことに注意。 see: words2wordids
+        """
         self.cur.execute(
             """
             SELECT wordid, pos FROM word
@@ -95,7 +98,7 @@ class Wnjp:
     
     def get_synsetids_and_synsetword_freq(self, wordid):
         """wordid を受け取り、synsetid と freq が含まれたリストを返す。
-        ただし freq が1以上のもののみを返す
+        ~~ただし freq が1以上のもののみを返す~~。0でも返す.
         
         Returns:
             [
@@ -106,7 +109,7 @@ class Wnjp:
             """
             SELECT synset, freq FROM sense
             WHERE wordid = ? AND lang = ? AND freq >= ?
-            """, (wordid, "eng", 1)
+            """, (wordid, "eng", 0)
         )
 
         s_tmp = self.cur.fetchall()
@@ -238,20 +241,22 @@ class Wnjp:
         print(wordid_list_str)
         self.cur.execute(
             f"""
-            SELECT wordid, lemma FROM word
+            SELECT wordid, lemma, pos FROM word
             WHERE wordid in ({wordid_list_str})
             """
             # (("wordid_list_str",))
         )
-        
+
         lemmas_tmp = self.cur.fetchall()
-        print(lemmas_tmp)
+        # print(lemmas_tmp)
         words_and_wordids={}
         for item in lemmas_tmp:
-            words_and_wordids[item[0]]=item[1].replace("_", " ")
+            words_and_wordids[item[0]]={"word": item[1].replace("_", " "), "pos":item[2]}
 
+        print(words_and_wordids)
         return words_and_wordids
     
+
     def synsetids2synsetdefs(self, synsetids:list[str])->list[any]:
         """synsetid の配列を受け取り、以下のオブジェクトを返す。
 
@@ -323,7 +328,46 @@ class Wnjp:
             obj[row[0]].append(row[3])
         print(obj)
         return obj
+    
 
+    def wordid2lemma_and_pos(self, wordid:int) -> dict[str,str]:
+        """wordid を受け取り {lemma: str, pos: str} を返す"""
+        retobj = {}
+        self.cur.execute(
+            f"""
+            SELECT wordid, lemma, pos FROM word
+            WHERE wordid = {wordid}
+            """
+        )
+        lemma_pos = self.cur.fetchall() # [wordid, lemma, pos]
+        retobj["lemma"] = lemma_pos[0][1]
+        retobj["pos"] = lemma_pos[0][2]
+
+        print(retobj)
+
+        return retobj
+
+    def words2wordids(self, words:list[str])->list[int,str]:
+        """word の配列を受け取り、 [word, wordid, pos] の配列を返す"""
+        
+        lemmas_obj = {}
+        lemmas_str = ""
+        for word in words:
+            # print("nlp:",nlp(word), "\tstr(nlp):", str(nlp(word)), "\ttype:", type(nlp(word)))
+            lemmas_obj[str(nlp(word))] = word
+
+        lemmas_str = "'" + "', '".join(lemmas_obj.keys()) + "'"
+        # print(lemmas_str)
+        self.cur.execute(
+            f"""
+            SELECT lemma, wordid, pos FROM word
+            WHERE lemma in ({lemmas_str}) 
+            """
+        )
+        wordids_tmp = self.cur.fetchall()
+        res = [[lemmas_obj[lemma], wordid, pos] for lemma, wordid, pos in wordids_tmp if lemma in lemmas_obj]
+
+        return res
 
 
 
@@ -367,7 +411,8 @@ def get_word(word):
 
     lemma = word
     wnjp=get_wnjp()
-    wi_p=wnjp.get_wordids_and_pos(lemma)
+    wi_p=wnjp.wordid2lemma_and_pos(lemma)
+    print("get_wordids_and_pos==========", wi_p)
     res = []
     for w in wi_p:
         wid = w[0]
@@ -395,11 +440,18 @@ def tmp_learing_words():
 
 @app.route("/wordids2words", methods=["POST"])
 def wordids2words():
-    """wordid の配列を受け取り、 {wordid:word} のオブジェクトを返す。
+    """wordid の配列を受け取り、 {wordid:{word:str, pos:str}} のオブジェクトを返す。
+
+    {
+        wordid: {
+            word: string,
+            pos: "a" | "r" | "n" | "v"
+        }
+    }
     """
     wnjp=get_wnjp()
     req = request.json
-
+    print("====wordids2words====")
     return wnjp.wordids2words(req)
 
 @app.route("/synsetids2synsetdefs", methods=["POST"])
@@ -429,14 +481,50 @@ def synsetids2synos():
     
     POST される JSON の型は:
     {
-        "jpnNum": int,              // default: 2
+        "synoNum": int,              // default: 2
         "lang": "jpn" | "eng"       // default: "jpn"
         "synsetids": str[]          
     }
     """
     wnjp=get_wnjp()
     req = request.json
-    return wnjp.synsetids2synos(req["synsetids"],req.get("jpnNum") or 2, req.get("lang") or "jpn")
+    return wnjp.synsetids2synos(req["synsetids"],req.get("synoNum") or 2, req.get("lang") or "jpn")
+
+
+@app.route("/wid/<int:wid>")
+def wordid2wordobj(wid):
+    """wordid を受け取り、`/w/<word>` の中でその wordid に当たるもののみを返す"""
+    
+    wnjp=get_wnjp()
+    lemma_pos = wnjp.wordid2lemma_and_pos(wid)
+    lemma = lemma_pos["lemma"]
+    pos = lemma_pos["pos"]
+    synsets = []
+    for synsetid, freq in wnjp.get_synsetids_and_synsetword_freq(wid):
+        synsetobj={"synsetid":synsetid, "freq":freq}
+        synsetobj["defs"] = wnjp.get_defs(synsetid)
+        synsetobj["examples"] = wnjp.get_examples(synsetid, lemma)
+        synsetobj["syno_list"] = wnjp.get_synos(synsetid, wid)
+        synsets.append(synsetobj)
+            
+
+    res = {"wordid": wid, "pos": pos, "synsets": synsets}
+
+    return res
+
+
+@app.route("/words2wordids", methods=["POST"])
+def words2wordids():
+    """word の配列を受け取り、 [word, wordid, pos] の配列を返す"""
+    wnjp=get_wnjp()
+    req = request.json
+    res = wnjp.words2wordids(req)
+
+    return res
+
+
+
+
 
 if __name__ == "__main__":
     app.run()
