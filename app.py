@@ -477,12 +477,12 @@ def synsetids2synsetdefs():
 
 @app.route("/synsetids2synos", methods=["POST"])
 def synsetids2synos():
-    """synsetid の配列を受け取り、それをキーとして、その synset に属する最初のjpnNum個のlang語の単語を返す
+    """synsetid の配列を受け取り、それをキーとして、その synset に属する最初のsynoNum個のlang語の単語を返す
     
-    POST される JSON の型は:
+    POST されるべき JSON の型は:
     {
-        "synoNum": int,              // default: 2
-        "lang": "jpn" | "eng"       // default: "jpn"
+        "synoNum"?: int,                // default: 2
+        "lang"?: "jpn" | "eng"          // default: "jpn"
         "synsetids": str[]          
     }
     """
@@ -508,7 +508,7 @@ def wordid2wordobj(wid):
         synsets.append(synsetobj)
             
 
-    res = {"wordid": wid, "pos": pos, "synsets": synsets}
+    res = {"wordid": wid, "pos": pos, "synsets": synsets, "word": lemma }
 
     return res
 
