@@ -4,6 +4,8 @@ import sys, re
 from flask import Flask, g, request
 from flask_cors import CORS
 
+
+from wordlist import Wordlist
 """en_core_web_md install
 python -m spacy download en_core_web_md
 """
@@ -370,6 +372,22 @@ class Wnjp:
         return res
 
 
+    def synset2freq_wordid(self, synsetid:str) -> list[dict[str,int]]:
+        """synsetdi を受け取り {freq:int, wordid:int}[] を返す"""
+        self.cur.execute(
+            f"""
+            SELECT freq, wordid FROM sense
+            WHERE synset = "{synsetid}" AND lang = "eng"
+            """
+        )
+        t = self.cur.fetchall()
+        freq_sum = 0
+        res = []
+        for freq, wordid in t:
+            freq_sum += freq
+            res.append({"freq": freq, "wordid": wordid})
+
+        return {"words": res, "sum":freq_sum}
 
 
 # target_word = sys.argv[1]
@@ -430,9 +448,29 @@ def get_word(word):
     return res
 # wnjp.close_db()
 
-@app.route("/tmp-learning-words")
-def tmp_learing_words():
-    r = ['test', 'theme', 'trial', 'swing', 'operate']
+@app.route("/tmp-learning-words", defaults={"level":0})
+@app.route("/tmp-learning-words/", defaults={"level":0})
+@app.route("/tmp-learning-words/<int:level>")
+def tmp_learing_words(level):
+
+    match level:
+        case 2000:
+            r = Wordlist.w2000
+        case 3000:
+            r = Wordlist.w3000
+        case 5000:
+            r = Wordlist.w5000
+
+        case 2010:
+            r = Wordlist.w2000
+
+        case 10000:
+            r = Wordlist.w10000
+
+        case 1 | 2 | 3:
+            r = sum(Wordlist.common_words[level],[])
+        case _:
+            r = ['test', 'theme', 'trial', 'swing', 'operate']
 
     return r
 
@@ -523,6 +561,18 @@ def words2wordids():
     return res
 
 
+@app.route("/synset2freq-wordid/<string:synsetid>")
+def synsetinfo(synsetid):
+    """synsetid を受け取り以下を返す
+    
+    {
+        words: {freq:int, wordid:int},
+        sum: int
+    }
+    """
+    wnjp=get_wnjp()
+    res = wnjp.synset2freq_wordid(synsetid)
+    return res
 
 
 
