@@ -306,11 +306,11 @@ class Wnjp:
     def synsetids2synos(self, synsetids:list[str], n:int, lang:str)->list[any]:
         """synsetid の配列を受け取り、それをキーとして、その synset に属する最初のn個のlang語の単語を返す
         """
-        obj = {key: [] for key in synsetids}
+        obj = {key: {"eng": [], "jpn": []} for key in synsetids}
         where_in_query = "'"+"', '".join(synsetids)+"'"
         print(where_in_query)
         self.cur.execute(
-            f"""
+            (f"""
             SELECT synset, wordid, lang, lemma
             FROM (
                 SELECT synset, sense.wordid, sense.lang, word.lemma,
@@ -321,15 +321,63 @@ class Wnjp:
                 AND sense.lang = "{lang}"
             )
             WHERE rownum <= {n};
-            """,
+            """) 
             # ((where_in_query,n))
         )
+
         rows = self.cur.fetchall()
+        # if lang == "jpn":
+        #     self.cur.execute(
+        #         f"""
+        #         SELECT synset, wordid, lang, lemma
+        #         FROM (
+        #             SELECT synset, sense.wordid, sense.lang, word.lemma,
+        #                 ROW_NUMBER() OVER (PARTITION BY synset) AS rownum
+        #             FROM sense
+        #             INNER JOIN word ON sense.wordid = word.wordid
+        #             WHERE synset IN ({where_in_query})
+        #             AND sense.lang = "eng"
+        #         )
+        #         WHERE rownum <= {n};
+        #         """
+        #     )
+        # row.append(self.cur.fetchall())
         print(rows)
         for row in rows:    # synset, wordid, lang, lemma
-            obj[row[0]].append(row[3])
+            obj[row[0]][row[2]].append(row[3])
         print(obj)
-        return obj
+        new_query = ""
+        for k,v in obj.items():
+            print(k,v, v["jpn"])
+            if len(v["jpn"])==0:
+                new_query += f"'{k}',"
+                print(new_query)
+         
+        if len(new_query) != 0:
+            new_query = new_query[:-1]
+            self.cur.execute(
+                f"""
+                SELECT synset, wordid, lang, lemma
+                FROM (
+                    SELECT synset, sense.wordid, sense.lang, word.lemma,
+                        ROW_NUMBER() OVER (PARTITION BY synset) AS rownum
+                    FROM sense
+                    INNER JOIN word ON sense.wordid = word.wordid
+                    WHERE synset IN ({new_query})
+                    AND sense.lang = "eng"
+                )
+                WHERE rownum <= {n};
+                """
+            )
+            rows = self.cur.fetchall()
+            print(rows)
+            for row in rows:    # synset, wordid, lang, lemma
+                obj[row[0]][row[2]].append(row[3])
+            print(obj)
+        retObj = {}
+        for k,v in obj.items():
+            retObj[k] = v["jpn"]+v["eng"]
+        return retObj
     
 
     def wordid2lemma_and_pos(self, wordid:int) -> dict[str,str]:
